@@ -4,13 +4,11 @@
 #ifndef COMMON_CONSOLE_H
 #define COMMON_CONSOLE_H
 
-#include "../config/core.h" // MAX_CONSOLE_INPUT
-
-#include "../common/cbasetypes.h"
-#include "../common/mutex.h"
-#include "../common/spinlock.h"
-#include "../common/sql.h"
-#include "../common/thread.h"
+#include "common/hercules.h"
+#include "common/mutex.h"
+#include "common/spinlock.h"
+#include "common/sql.h"
+#include "common/thread.h"
 
 /**
  * Queue Max
@@ -43,11 +41,6 @@ struct CParseEntry {
 	} u;
 	unsigned short next_count;
 };
-
-struct {
-	char queue[CONSOLE_PARSE_SIZE][MAX_CONSOLE_INPUT];
-	unsigned short count;
-} cinput;
 
 #ifdef CONSOLE_INPUT
 struct console_input_interface {
@@ -89,8 +82,10 @@ struct console_interface {
 	struct console_input_interface *input;
 };
 
-struct console_interface *console;
-
+#ifdef HERCULES_CORE
 void console_defaults(void);
+#endif // HERCULES_CORE
+
+HPShared struct console_interface *console;
 
 #endif /* COMMON_CONSOLE_H */

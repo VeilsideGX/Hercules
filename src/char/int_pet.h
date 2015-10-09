@@ -4,9 +4,9 @@
 #ifndef CHAR_INT_PET_H
 #define CHAR_INT_PET_H
 
-struct s_pet;
+#include "common/hercules.h"
 
-void inter_pet_defaults(void);
+struct s_pet;
 
 /**
  * inter_pet interface
@@ -21,6 +21,10 @@ struct inter_pet_interface {
 	int (*parse_frommap) (int fd);
 };
 
-struct inter_pet_interface *inter_pet;
+#ifdef HERCULES_CORE
+void inter_pet_defaults(void);
+#endif // HERCULES_CORE
+
+HPShared struct inter_pet_interface *inter_pet;
 
 #endif /* CHAR_INT_PET_H */

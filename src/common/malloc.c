@@ -6,23 +6,24 @@
 
 #include "malloc.h"
 
+#include "common/cbasetypes.h"
+#include "common/core.h"
+#include "common/showmsg.h"
+#include "common/sysinfo.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
-
-#include "../common/core.h"
-#include "../common/showmsg.h"
-#include "../common/sysinfo.h"
 
 struct malloc_interface iMalloc_s;
+struct malloc_interface *iMalloc;
 
 ////////////// Memory Libraries //////////////////
 
 #if defined(MEMWATCH)
 
 #	include <string.h>
-#	include "memwatch.h"
+#	include <memwatch.h>
 #	define MALLOC(n,file,line,func)    mwMalloc((n),(file),(line))
 #	define CALLOC(m,n,file,line,func)  mwCalloc((m),(n),(file),(line))
 #	define REALLOC(p,n,file,line,func) mwRealloc((p),(n),(file),(line))
@@ -36,7 +37,7 @@ struct malloc_interface iMalloc_s;
 
 #	include <string.h>
 #	include <stdlib.h>
-#	include "dmalloc.h"
+#	include <dmalloc.h>
 #	define MALLOC(n,file,line,func)    dmalloc_malloc((file),(line),(n),DMALLOC_FUNC_MALLOC,0,0)
 #	define CALLOC(m,n,file,line,func)  dmalloc_malloc((file),(line),(m)*(n),DMALLOC_FUNC_CALLOC,0,0)
 #	define REALLOC(p,n,file,line,func) dmalloc_realloc((file),(line),(p),(n),DMALLOC_FUNC_REALLOC,0)
@@ -48,7 +49,7 @@ struct malloc_interface iMalloc_s;
 
 #elif defined(GCOLLECT)
 
-#	include "gc.h"
+#	include <gc.h>
 #	ifdef GC_ADD_CALLER
 #		define RETURN_ADDR 0,
 #	else
@@ -124,8 +125,7 @@ void aFree_(void *p, const char *file, int line, const char *func)
 	// ShowMessage("%s:%d: in func %s: aFree %p\n",file,line,func,p);
 	if (p)
 		FREE(p, file, line, func);
-
-	p = NULL;
+	//p = NULL;
 }
 
 
@@ -343,7 +343,8 @@ void *mmalloc_(size_t size, const char *file, int line, const char *func) {
 
 void *mcalloc_(size_t num, size_t size, const char *file, int line, const char *func) {
 	void *p = iMalloc->malloc(num * size,file,line,func);
-	memset(p,0,num * size);
+	if (p)
+		memset(p, 0, num * size);
 	return p;
 }
 
@@ -487,13 +488,13 @@ void mfree_(void *ptr, const char *file, int line, const char *func) {
 /* Allocating blocks */
 static struct block* block_malloc(unsigned short hash)
 {
-	int i;
 	struct block *p;
 	if(hash_unfill[0] != NULL) {
 		/* Space for the block has already been secured */
 		p = hash_unfill[0];
 		hash_unfill[0] = hash_unfill[0]->unfill_next;
 	} else {
+		int i;
 		/* Newly allocated space for the block */
 		p = (struct block*)MALLOC(sizeof(struct block) * (BLOCK_ALLOC), __FILE__, __LINE__, __func__ );
 		memmgr_usage_bytes_t += sizeof(struct block) * (BLOCK_ALLOC);
@@ -769,12 +770,24 @@ void memmgr_report (int extra) {
 
 }
 
-static void memmgr_init (void)
+/**
+ * Initializes the Memory Manager.
+ */
+static void memmgr_init(void)
+{
+#ifdef LOG_MEMMGR
+	memset(hash_unfill, 0, sizeof(hash_unfill));
+#endif /* LOG_MEMMGR */
+}
+
+/**
+ * Prints initialization messages from the Memory Manager.
+ */
+static void memmgr_init_messages(void)
 {
 #ifdef LOG_MEMMGR
 	sprintf(memmer_logfile, "log/%s.leaks", SERVER_NAME);
 	ShowStatus("Memory manager initialized: "CL_WHITE"%s"CL_RESET"\n", memmer_logfile);
-	memset(hash_unfill, 0, sizeof(hash_unfill));
 #endif /* LOG_MEMMGR */
 }
 #endif /* USE_MEMMGR */
@@ -821,7 +834,22 @@ void malloc_final (void) {
 		iMalloc->post_shutdown();
 }
 
-void malloc_init (void) {
+/**
+ * Prints initialization status messages.
+ *
+ * This is separated from malloc_init() in order to be run after giving the
+ * chance to other modules to initialize, in case they want to silence any
+ * status messages, but at the same time require malloc.
+ */
+void malloc_init_messages(void)
+{
+#ifdef USE_MEMMGR
+	memmgr_init_messages();
+#endif
+}
+
+void malloc_init(void)
+{
 #ifdef USE_MEMMGR
 	memmgr_usage_bytes_t = 0;
 	memmgr_usage_bytes = 0;
@@ -836,7 +864,7 @@ void malloc_init (void) {
 	GC_INIT();
 #endif
 #ifdef USE_MEMMGR
-	memmgr_init ();
+	memmgr_init();
 #endif
 }
 
@@ -865,4 +893,5 @@ void malloc_defaults(void) {
 	iMalloc->free     = aFree_;
 #endif
 	iMalloc->post_shutdown = NULL;
+	iMalloc->init_messages = malloc_init_messages;
 }

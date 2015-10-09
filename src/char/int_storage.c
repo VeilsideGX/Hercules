@@ -4,30 +4,32 @@
 
 #define HERCULES_CORE
 
-#include "../config/core.h" // GP_BOUND_ITEMS
+#include "config/core.h" // GP_BOUND_ITEMS
 #include "int_storage.h"
+
+#include "char/char.h"
+#include "char/inter.h"
+#include "char/mapif.h"
+#include "common/malloc.h"
+#include "common/mmo.h"
+#include "common/nullpo.h"
+#include "common/showmsg.h"
+#include "common/socket.h"
+#include "common/sql.h"
+#include "common/strlib.h" // StringBuf
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
-
-#include "char.h"
-#include "inter.h"
-#include "mapif.h"
-#include "../common/malloc.h"
-#include "../common/mmo.h"
-#include "../common/showmsg.h"
-#include "../common/socket.h"
-#include "../common/sql.h"
-#include "../common/strlib.h" // StringBuf
 
 #define STORAGE_MEMINC 16
 
 struct inter_storage_interface inter_storage_s;
+struct inter_storage_interface *inter_storage;
 
 /// Save storage data to sql
 int inter_storage_tosql(int account_id, struct storage_data* p)
 {
+	nullpo_ret(p);
 	chr->memitemdata_to_sql(p->items, MAX_STORAGE, account_id, TABLE_STORAGE);
 	return 0;
 }
@@ -36,11 +38,11 @@ int inter_storage_tosql(int account_id, struct storage_data* p)
 int inter_storage_fromsql(int account_id, struct storage_data* p)
 {
 	StringBuf buf;
-	struct item* item;
 	char* data;
 	int i;
 	int j;
 
+	nullpo_ret(p);
 	memset(p, 0, sizeof(struct storage_data)); //clean up memory
 	p->storage_amount = 0;
 
@@ -51,14 +53,13 @@ int inter_storage_fromsql(int account_id, struct storage_data* p)
 		StrBuf->Printf(&buf, ",`card%d`", j);
 	StrBuf->Printf(&buf, " FROM `%s` WHERE `account_id`='%d' ORDER BY `nameid`", storage_db, account_id);
 
-	if( SQL_ERROR == SQL->Query(inter->sql_handle, StrBuf->Value(&buf)) )
+	if (SQL_ERROR == SQL->QueryStr(inter->sql_handle, StrBuf->Value(&buf)))
 		Sql_ShowDebug(inter->sql_handle);
 
 	StrBuf->Destroy(&buf);
 
-	for( i = 0; i < MAX_STORAGE && SQL_SUCCESS == SQL->NextRow(inter->sql_handle); ++i )
-	{
-		item = &p->items[i];
+	for (i = 0; i < MAX_STORAGE && SQL_SUCCESS == SQL->NextRow(inter->sql_handle); ++i) {
+		struct item *item = &p->items[i];
 		SQL->GetData(inter->sql_handle, 0, &data, NULL); item->id = atoi(data);
 		SQL->GetData(inter->sql_handle, 1, &data, NULL); item->nameid = atoi(data);
 		SQL->GetData(inter->sql_handle, 2, &data, NULL); item->amount = atoi(data);
@@ -84,6 +85,7 @@ int inter_storage_fromsql(int account_id, struct storage_data* p)
 /// Save guild_storage data to sql
 int inter_storage_guild_storage_tosql(int guild_id, struct guild_storage* p)
 {
+	nullpo_ret(p);
 	chr->memitemdata_to_sql(p->items, MAX_GUILD_STORAGE, guild_id, TABLE_GUILD_STORAGE);
 	ShowInfo ("guild storage save to DB - guild: %d\n", guild_id);
 	return 0;
@@ -93,11 +95,11 @@ int inter_storage_guild_storage_tosql(int guild_id, struct guild_storage* p)
 int inter_storage_guild_storage_fromsql(int guild_id, struct guild_storage* p)
 {
 	StringBuf buf;
-	struct item* item;
 	char* data;
 	int i;
 	int j;
 
+	nullpo_ret(p);
 	memset(p, 0, sizeof(struct guild_storage)); //clean up memory
 	p->storage_amount = 0;
 	p->guild_id = guild_id;
@@ -109,13 +111,13 @@ int inter_storage_guild_storage_fromsql(int guild_id, struct guild_storage* p)
 		StrBuf->Printf(&buf, ",`card%d`", j);
 	StrBuf->Printf(&buf, " FROM `%s` WHERE `guild_id`='%d' ORDER BY `nameid`", guild_storage_db, guild_id);
 
-	if( SQL_ERROR == SQL->Query(inter->sql_handle, StrBuf->Value(&buf)) )
+	if( SQL_ERROR == SQL->QueryStr(inter->sql_handle, StrBuf->Value(&buf)))
 		Sql_ShowDebug(inter->sql_handle);
 
 	StrBuf->Destroy(&buf);
 
-	for( i = 0; i < MAX_GUILD_STORAGE && SQL_SUCCESS == SQL->NextRow(inter->sql_handle); ++i ) {
-		item = &p->items[i];
+	for (i = 0; i < MAX_GUILD_STORAGE && SQL_SUCCESS == SQL->NextRow(inter->sql_handle); ++i) {
+		struct item *item = &p->items[i];
 		SQL->GetData(inter->sql_handle, 0, &data, NULL); item->id = atoi(data);
 		SQL->GetData(inter->sql_handle, 1, &data, NULL); item->nameid = atoi(data);
 		SQL->GetData(inter->sql_handle, 2, &data, NULL); item->amount = atoi(data);
@@ -300,7 +302,8 @@ int mapif_parse_ItemBoundRetrieve_sub(int fd)
 	for( j = 0; j < MAX_SLOTS; ++j )
 		SQL->StmtBindColumn(stmt, 10+j, SQLDT_SHORT, &item.card[j], 0, NULL, NULL);
 
-	while( SQL_SUCCESS == SQL->StmtNextRow(stmt) ) {
+	while( SQL_SUCCESS == SQL->StmtNextRow(stmt)) {
+		Assert_retb(i < MAX_INVENTORY);
 		memcpy(&items[i],&item,sizeof(struct item));
 		i++;
 	}

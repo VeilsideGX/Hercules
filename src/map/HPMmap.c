@@ -5,62 +5,73 @@
 
 #include "HPMmap.h"
 
+#include "common/HPM.h"
+#include "common/cbasetypes.h"
+
+#include "common/HPMi.h"
+#include "common/conf.h"
+#include "common/console.h"
+#include "common/core.h"
+#include "common/db.h"
+#include "common/des.h"
+#include "common/ers.h"
+#include "common/malloc.h"
+#include "common/mapindex.h"
+#include "common/mmo.h"
+#include "common/nullpo.h"
+#include "common/showmsg.h"
+#include "common/socket.h"
+#include "common/spinlock.h"
+#include "common/sql.h"
+#include "common/strlib.h"
+#include "common/sysinfo.h"
+#include "common/timer.h"
+#include "common/utils.h"
+#include "map/atcommand.h"
+#include "map/battle.h"
+#include "map/battleground.h"
+#include "map/buyingstore.h"
+#include "map/channel.h"
+#include "map/chat.h"
+#include "map/chrif.h"
+#include "map/clif.h"
+#include "map/date.h"
+#include "map/duel.h"
+#include "map/elemental.h"
+#include "map/guild.h"
+#include "map/homunculus.h"
+#include "map/instance.h"
+#include "map/intif.h"
+#include "map/irc-bot.h"
+#include "map/itemdb.h"
+#include "map/log.h"
+#include "map/mail.h"
+#include "map/map.h"
+#include "map/mapreg.h"
+#include "map/mercenary.h"
+#include "map/mob.h"
+#include "map/npc.h"
+#include "map/packets_struct.h"
+#include "map/party.h"
+#include "map/path.h"
+#include "map/pc.h"
+#include "map/pc_groups.h"
+#include "map/pet.h"
+#include "map/quest.h"
+#include "map/script.h"
+#include "map/searchstore.h"
+#include "map/skill.h"
+#include "map/status.h"
+#include "map/storage.h"
+#include "map/trade.h"
+#include "map/unit.h"
+#include "map/vending.h"
+
+// HPMDataCheck comes after all the other includes
+#include "common/HPMDataCheck.h"
+
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
-#include <time.h>
-
-#include "atcommand.h"
-#include "battle.h"
-#include "battleground.h"
-#include "chat.h"
-#include "chrif.h"
-#include "clif.h"
-#include "date.h"
-#include "duel.h"
-#include "elemental.h"
-#include "guild.h"
-#include "homunculus.h"
-#include "instance.h"
-#include "intif.h"
-#include "irc-bot.h"
-#include "itemdb.h"
-#include "log.h"
-#include "mail.h"
-#include "map.h"
-#include "mapreg.h"
-#include "mercenary.h"
-#include "mob.h"
-#include "npc.h"
-#include "party.h"
-#include "path.h"
-#include "pc.h"
-#include "pc_groups.h"
-#include "pet.h"
-#include "quest.h"
-#include "script.h"
-#include "searchstore.h"
-#include "skill.h"
-#include "status.h"
-#include "storage.h"
-#include "trade.h"
-#include "unit.h"
-#include "vending.h"
-#include "../common/HPM.h"
-#include "../common/cbasetypes.h"
-#include "../common/conf.h"
-#include "../common/db.h"
-#include "../common/des.h"
-#include "../common/ers.h"
-#include "../common/malloc.h"
-#include "../common/mapindex.h"
-#include "../common/mmo.h"
-#include "../common/showmsg.h"
-#include "../common/socket.h"
-#include "../common/strlib.h"
-#include "../common/sysinfo.h"
-
-#include "../common/HPMDataCheck.h"
 
 struct HPM_atcommand_list {
 	//tracking currently not enabled
@@ -113,6 +124,14 @@ bool HPM_map_grabHPData(struct HPDataOperationStorage *ret, enum HPluginDataType
 			ret->HPDataSRCPtr = (void**)(&((struct item_data *)ptr)->hdata);
 			ret->hdatac = &((struct item_data *)ptr)->hdatac;
 			break;
+		case HPDT_BGDATA:
+			ret->HPDataSRCPtr = (void**)(&((struct battleground_data *)ptr)->hdata);
+			ret->hdatac = &((struct battleground_data *)ptr)->hdatac;
+			break;
+		case HPDT_AUTOTRADE_VEND:
+			ret->HPDataSRCPtr = (void**)(&((struct autotrade_vending *)ptr)->hdata);
+			ret->hdatac = &((struct autotrade_vending *)ptr)->hdatac;
+			break;
 		default:
 			return false;
 	}
@@ -120,34 +139,35 @@ bool HPM_map_grabHPData(struct HPDataOperationStorage *ret, enum HPluginDataType
 }
 
 void HPM_map_plugin_load_sub(struct hplugin *plugin) {
-	plugin->hpi->addCommand       = HPM->import_symbol("addCommand",plugin->idx);
-	plugin->hpi->addScript        = HPM->import_symbol("addScript",plugin->idx);
-	plugin->hpi->addPCGPermission = HPM->import_symbol("addGroupPermission",plugin->idx);
+	plugin->hpi->sql_handle = map->mysql_handle;
+	plugin->hpi->addCommand = atcommand->create;
+	plugin->hpi->addScript  = script->addScript;
+	plugin->hpi->addPCGPermission = HPM_map_add_group_permission;
 }
 
 bool HPM_map_add_atcommand(char *name, AtCommandFunc func) {
 	unsigned int i = 0;
-	
+
 	for(i = 0; i < atcommand_list_items; i++) {
 		if( !strcmpi(atcommand_list[i].name,name) ) {
 			ShowDebug("HPM_map_add_atcommand: duplicate command '%s', skipping...\n", name);
 			return false;
 		}
 	}
-	
+
 	i = atcommand_list_items;
-	
+
 	RECREATE(atcommand_list, struct HPM_atcommand_list , ++atcommand_list_items);
-	
+
 	safestrncpy(atcommand_list[i].name, name, sizeof(atcommand_list[i].name));
 	atcommand_list[i].func = func;
-	
+
 	return true;
 }
 
 void HPM_map_atcommands(void) {
 	unsigned int i;
-	
+
 	for(i = 0; i < atcommand_list_items; i++) {
 		atcommand->add(atcommand_list[i].name,atcommand_list[i].func,true);
 	}
@@ -158,9 +178,9 @@ void HPM_map_atcommands(void) {
  **/
 void HPM_map_add_group_permission(unsigned int pluginID, char *name, unsigned int *mask) {
 	unsigned char index = pcg->HPMpermissions_count;
-	
+
 	RECREATE(pcg->HPMpermissions, struct pc_groups_new_permission, ++pcg->HPMpermissions_count);
-	
+
 	pcg->HPMpermissions[index].pID = pluginID;
 	pcg->HPMpermissions[index].name = aStrdup(name);
 	pcg->HPMpermissions[index].mask = mask;
@@ -170,24 +190,22 @@ void HPM_map_do_init(void) {
 	HPM->load_sub = HPM_map_plugin_load_sub;
 	HPM->grabHPDataSub = HPM_map_grabHPData;
 	HPM->datacheck_init(HPMDataCheck, HPMDataCheckLen, HPMDataCheckVer);
+	HPM_shared_symbols(SERVER_TYPE_MAP);
 }
 
 void HPM_map_do_final(void) {
-	unsigned char i;
-	
-	if( atcommand_list )
+	if (atcommand_list)
 		aFree(atcommand_list);
 	/**
 	 * why is pcg->HPM being cleared here? because PCG's do_final is not final,
 	 * is used on reload, and would thus cause plugin-provided permissions to go away
 	 **/
-	if( pcg->HPMpermissions )
-	{
-		for( i = 0; i < pcg->HPMpermissions_count; i++ ) {
+	if (pcg->HPMpermissions) {
+		unsigned char i;
+		for (i = 0; i < pcg->HPMpermissions_count; i++) {
 			aFree(pcg->HPMpermissions[i].name);
 		}
 		aFree(pcg->HPMpermissions);
 	}
-	
 	HPM->datacheck_final();
 }

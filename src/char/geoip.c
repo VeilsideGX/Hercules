@@ -6,17 +6,18 @@
 
 #include "geoip.h"
 
+#include "common/cbasetypes.h"
+#include "common/malloc.h"
+#include "common/showmsg.h"
+
 #include <errno.h>
 #include <stdio.h>
 #include <sys/stat.h> // for stat/lstat/fstat - [Dekamaster/Ultimate GM Tool]
 
-#include "../common/cbasetypes.h"
-#include "../common/malloc.h"
-#include "../common/showmsg.h"
-
 struct s_geoip geoip_data;
 
 struct geoip_interface geoip_s;
+struct geoip_interface *geoip;
 
 /* [Dekamaster/Nightroad] */
 #define GEOIP_MAX_COUNTRIES 255
@@ -56,14 +57,13 @@ const char* geoip_getcountry(uint32 ipnum)
 {
 	int depth;
 	unsigned int x;
-	const unsigned char *buf;
 	unsigned int offset = 0;
 
 	if( geoip->data->active == false )
 		return geoip_countryname[0];
 
 	for (depth = 31; depth >= 0; depth--) {
-		buf = geoip->data->cache + (long)6 *offset;
+		const unsigned char *buf = geoip->data->cache + (long)6 *offset;
 		if (ipnum & (1 << depth)) {
 			/* Take the right-hand branch */
 			x =   (buf[3*1 + 0] << (0*8))
@@ -78,7 +78,7 @@ const char* geoip_getcountry(uint32 ipnum)
 		if (x >= GEOIP_COUNTRY_BEGIN) {
 			x = x-GEOIP_COUNTRY_BEGIN;
 
-			if( x > GEOIP_MAX_COUNTRIES )
+			if( x >= GEOIP_MAX_COUNTRIES )
 				return geoip_countryname[0];
 
 			return geoip_countryname[x];
@@ -133,10 +133,11 @@ void geoip_init(void)
 	fno = fileno(db);
 	if (fstat(fno, &bufa) < 0) {
 		ShowError("geoip_readdb: Error stating GeoIP.dat! Error %d\n", errno);
+		fclose(db);
 		geoip->final(false);
 		return;
 	}
-	geoip->data->cache = aMalloc( (sizeof(geoip->data->cache) * bufa.st_size) );
+	geoip->data->cache = aMalloc(sizeof(unsigned char) * bufa.st_size);
 	if (fread(geoip->data->cache, sizeof(unsigned char), bufa.st_size, db) != bufa.st_size) {
 		ShowError("geoip_cache: Couldn't read all elements!\n");
 		fclose(db);
@@ -145,19 +146,24 @@ void geoip_init(void)
 	}
 
 	// Search database type
-	fseek(db, -3l, SEEK_END);
-	for (i = 0; i < GEOIP_STRUCTURE_INFO_MAX_SIZE; i++) {
-		if (fread(delim, sizeof(delim[0]), 3, db) != 3) {
-			db_type = 0;
-			break;
-		}
-		if (delim[0] == 255 && delim[1] == 255 && delim[2] == 255) {
-			if (fread(&db_type, sizeof(db_type), 1, db) != 1) {
+	if (fseek(db, -3l, SEEK_END) != 0) {
+		db_type = 0;
+	} else {
+		for (i = 0; i < GEOIP_STRUCTURE_INFO_MAX_SIZE; i++) {
+			if (fread(delim, sizeof(delim[0]), 3, db) != 3) {
 				db_type = 0;
+				break;
 			}
-			break;
-		} else {
-			fseek(db, -4l, SEEK_CUR);
+			if (delim[0] == 255 && delim[1] == 255 && delim[2] == 255) {
+				if (fread(&db_type, sizeof(db_type), 1, db) != 1) {
+					db_type = 0;
+				}
+				break;
+			}
+			if (fseek(db, -4l, SEEK_CUR) != 0) {
+				db_type = 0;
+				break;
+			}
 		}
 	}
 

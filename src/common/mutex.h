@@ -4,11 +4,12 @@
 #ifndef COMMON_MUTEX_H
 #define COMMON_MUTEX_H
 
-#include "../common/cbasetypes.h"
+#include "common/cbasetypes.h"
 
 typedef struct ramutex ramutex; // Mutex
 typedef struct racond racond; // Condition Var
 
+#ifdef HERCULES_CORE
 /**
  * Creates a Mutex
  *
@@ -88,6 +89,6 @@ void racond_signal(racond *c);
  *  All Waiters getting notified.
  */
 void racond_broadcast(racond *c);
-
+#endif // HERCULES_CORE
 
 #endif /* COMMON_MUTEX_H */

@@ -4,9 +4,13 @@
 #ifndef MAP_HPMMAP_H
 #define MAP_HPMMAP_H
 
-#include "../common/cbasetypes.h"
-#include "../map/atcommand.h"
-#include "../common/HPM.h"
+#ifndef HERCULES_CORE
+#error You should never include HPMmap.h from a plugin.
+#endif
+
+#include "map/atcommand.h"
+#include "common/cbasetypes.h"
+#include "common/HPM.h"
 
 struct hplugin;
 struct map_session_data;

@@ -5,8 +5,9 @@
 #ifndef COMMON_MAPINDEX_H
 #define COMMON_MAPINDEX_H
 
-#include "../common/db.h"
-#include "../common/mmo.h"
+#include "common/hercules.h"
+#include "common/db.h"
+#include "common/mmo.h"
 
 #define MAX_MAPINDEX 2000
 
@@ -54,6 +55,7 @@
 #define MAP_MALANGDO "malangdo"
 #define MAP_MALAYA "malaya"
 #define MAP_ECLAGE "eclage"
+#define MAP_ECLAGE_IN "ecl_in01"
 
 #define mapindex_id2name(n) mapindex->id2name((n),__FILE__, __LINE__, __func__)
 #define mapindex_exists(n) ( mapindex->list[(n)].name[0] != '\0' )
@@ -89,12 +91,14 @@ struct mapindex_interface {
 	const char* (*getmapname_ext) (const char* string, char* output);
 	/* TODO: Hello World! make up your mind, this thing is int on some places and unsigned short on others */
 	unsigned short (*name2id) (const char*);
-	const char* (*id2name) (unsigned short,const char *file, int line, const char *func);
+	const char * (*id2name) (uint16 id, const char *file, int line, const char *func);
 	bool (*check_default) (void);
 };
 
-struct mapindex_interface *mapindex;
-
+#ifdef HERCULES_CORE
 void mapindex_defaults(void);
+#endif // HERCULES_CORE
+
+HPShared struct mapindex_interface *mapindex;
 
 #endif /* COMMON_MAPINDEX_H */

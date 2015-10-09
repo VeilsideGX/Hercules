@@ -4,11 +4,9 @@
 #ifndef CHAR_INT_MERCENARY_H
 #define CHAR_INT_MERCENARY_H
 
-#include "../common/cbasetypes.h"
+#include "common/hercules.h"
 
 struct mmo_charstatus;
-
-void inter_mercenary_defaults(void);
 
 /**
  * inter_mercenary interface
@@ -22,6 +20,10 @@ struct inter_mercenary_interface {
 	int (*parse_frommap) (int fd);
 };
 
-struct inter_mercenary_interface *inter_mercenary;
+#ifdef HERCULES_CORE
+void inter_mercenary_defaults(void);
+#endif // HERCULES_CORE
+
+HPShared struct inter_mercenary_interface *inter_mercenary;
 
 #endif /* CHAR_INT_MERCENARY_H */

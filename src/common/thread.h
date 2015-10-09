@@ -4,7 +4,7 @@
 #ifndef COMMON_THREAD_H
 #define COMMON_THREAD_H
 
-#include "../common/cbasetypes.h"
+#include "common/cbasetypes.h"
 
 typedef struct rAthread rAthread;
 typedef void* (*rAthreadProc)(void*);
@@ -16,6 +16,7 @@ typedef enum RATHREAD_PRIO {
 } RATHREAD_PRIO;
 
 
+#ifdef HERCULES_CORE
 /**
  * Creates a new Thread
  *
@@ -109,10 +110,8 @@ RATHREAD_PRIO rathread_prio_get(rAthread *handle);
  */
 void rathread_yield(void);
 
-
-
 void rathread_init(void);
 void rathread_final(void);
-
+#endif // HERCULES_CORE
 
 #endif /* COMMON_THREAD_H */

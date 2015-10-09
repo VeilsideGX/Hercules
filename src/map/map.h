@@ -5,19 +5,20 @@
 #ifndef MAP_MAP_H
 #define MAP_MAP_H
 
-#include <stdarg.h>
+#include "map/atcommand.h"
+#include "common/hercules.h"
+#include "common/core.h" // CORE_ST_LAST
+#include "common/db.h"
+#include "common/mapindex.h"
+#include "common/mmo.h"
+#include "common/sql.h"
 
-#include "atcommand.h"
-#include "../common/cbasetypes.h"
-#include "../common/core.h" // CORE_ST_LAST
-#include "../common/db.h"
-#include "../common/mapindex.h"
-#include "../common/mmo.h"
-#include "../common/sql.h"
+#include <stdio.h>
+#include <stdarg.h>
 
 struct mob_data;
 struct npc_data;
-struct hChSysCh;
+struct channel_data;
 
 enum E_MAPSERVER_ST {
 	MAPSERVER_ST_RUNNING = CORE_ST_LAST,
@@ -62,16 +63,6 @@ enum MOBID {
 	MOBID_SILVERSNIPER = 2042,
 	MOBID_MAGICDECOY_WIND = 2046,
 };
-
-// The following system marks a different job ID system used by the map server,
-// which makes a lot more sense than the normal one. [Skotlex]
-// These marks the "level" of the job.
-#define JOBL_2_1 0x100 //256
-#define JOBL_2_2 0x200 //512
-#define JOBL_2 0x300
-#define JOBL_UPPER 0x1000 //4096
-#define JOBL_BABY 0x2000  //8192
-#define JOBL_THIRD 0x4000 //16384
 
 // For filtering and quick checking.
 #define MAPID_BASEMASK 0x00ff
@@ -222,7 +213,13 @@ enum {
 #define EVENT_NAME_LENGTH ( NAME_LENGTH * 2 + 3 )
 #define DEFAULT_AUTOSAVE_INTERVAL (5*60*1000)
 // Specifies maps where players may hit each other
-#define map_flag_vs(m) (map->list[m].flag.pvp || map->list[m].flag.gvg_dungeon || map->list[m].flag.gvg || ((map->agit_flag || map->agit2_flag) && map->list[m].flag.gvg_castle) || map->list[m].flag.battleground)
+#define map_flag_vs(m) ( \
+		map->list[m].flag.pvp \
+		|| map->list[m].flag.gvg_dungeon \
+		|| map->list[m].flag.gvg \
+		|| ((map->agit_flag || map->agit2_flag) && map->list[m].flag.gvg_castle) \
+		|| map->list[m].flag.battleground \
+		)
 // Specifies maps that have special GvG/WoE restrictions
 #define map_flag_gvg(m) (map->list[m].flag.gvg || ((map->agit_flag || map->agit2_flag) && map->list[m].flag.gvg_castle))
 // Specifies if the map is tagged as GvG/WoE (regardless of map->agit_flag status)
@@ -264,10 +261,15 @@ enum {
 	RC_DEMIHUMAN,
 	RC_ANGEL,
 	RC_DRAGON,
+	RC_PLAYER,
 	RC_BOSS,
 	RC_NONBOSS,
+	RC_MAX,
 	RC_NONDEMIHUMAN,
-	RC_MAX
+	RC_NONPLAYER,
+	RC_DEMIPLAYER,
+	RC_NONDEMIPLAYER,
+	RC_ALL = 0xFF
 };
 
 enum {
@@ -278,10 +280,12 @@ enum {
 	RC2_GOLEM,
 	RC2_GUARDIAN,
 	RC2_NINJA,
+	RC2_SCARABA,
+	RC2_TURTLE,
 	RC2_MAX
 };
 
-enum {
+enum elements {
 	ELE_NEUTRAL=0,
 	ELE_WATER,
 	ELE_EARTH,
@@ -292,17 +296,21 @@ enum {
 	ELE_DARK,
 	ELE_GHOST,
 	ELE_UNDEAD,
-	ELE_MAX
+	ELE_MAX,
+	ELE_ALL = 0xFF
 };
 
-enum {
-	SPIRITS_TYPE_NONE = 0,
-	SPIRITS_TYPE_CHARM_WATER,
-	SPIRITS_TYPE_CHARM_LAND,
-	SPIRITS_TYPE_CHARM_FIRE,
-	SPIRITS_TYPE_CHARM_WIND,
-	SPIRITS_TYPE_SPHERE,
-	SPIRITS_TYPE_END
+/**
+ * Types of spirit charms.
+ *
+ * Note: Code assumes that this matches the first entries in enum elements.
+ */
+enum spirit_charm_types {
+	CHARM_TYPE_NONE = 0,
+	CHARM_TYPE_WATER,
+	CHARM_TYPE_LAND,
+	CHARM_TYPE_FIRE,
+	CHARM_TYPE_WIND
 };
 
 enum auto_trigger_flag {
@@ -420,6 +428,7 @@ enum status_point_types {
 	SP_SKILL_COOLDOWN,SP_SKILL_FIXEDCAST, SP_SKILL_VARIABLECAST, SP_FIXCASTRATE, SP_VARCASTRATE, //2050-2054
 	SP_SKILL_USE_SP,SP_MAGIC_ATK_ELE, SP_ADD_FIXEDCAST, SP_ADD_VARIABLECAST,  //2055-2058
 	SP_SET_DEF_RACE,SP_SET_MDEF_RACE, //2059-2060
+	SP_RACE_TOLERANCE, //2061
 
 	/* must be the last, plugins add bonuses from this value onwards */
 	SP_LAST_KNOWN,
@@ -540,6 +549,12 @@ struct map_zone_skill_damage_cap_entry {
 	enum map_zone_skill_subtype subtype;
 };
 
+enum map_zone_merge_type {
+	MZMT_NORMAL = 0, ///< MZMT_MERGEABLE zones can merge *into* MZMT_NORMAL zones (but not the converse).
+	MZMT_MERGEABLE,  ///< Can merge with other MZMT_MERGEABLE zones and *into* MZMT_NORMAL zones.
+	MZMT_NEVERMERGE, ///< Cannot merge with any zones.
+};
+
 #define MAP_ZONE_NAME_LENGTH 60
 #define MAP_ZONE_ALL_NAME "All"
 #define MAP_ZONE_NORMAL_NAME "Normal"
@@ -551,10 +566,13 @@ struct map_zone_skill_damage_cap_entry {
 
 struct map_zone_data {
 	char name[MAP_ZONE_NAME_LENGTH];/* 20'd */
+	enum map_zone_merge_type merge_type;
 	struct map_zone_disabled_skill_entry **disabled_skills;
 	int disabled_skills_count;
 	int *disabled_items;
 	int disabled_items_count;
+	int *cant_disable_items; /** when a zone wants to ensure such a item is never disabled (i.e. gvg zone enables a item that is restricted everywhere else) **/
+	int cant_disable_items_count;
 	char **mapflags;
 	int mapflags_count;
 	struct map_zone_disabled_command_entry **disabled_commands;
@@ -562,7 +580,7 @@ struct map_zone_data {
 	struct map_zone_skill_damage_cap_entry **capped_skills;
 	int capped_skills_count;
 	struct {
-		unsigned int special : 2;/* 1: whether this is a mergeable zone; 2: whether it is a merged zone */
+		unsigned int merged : 1;
 	} info;
 };
 
@@ -689,7 +707,7 @@ struct map_data {
 	struct map_zone_data *prev_zone;
 
 	/* Hercules Local Chat */
-	struct hChSysCh *channel;
+	struct channel_data *channel;
 
 	/* invincible_time_inc mapflag */
 	unsigned int invincible_time_inc;
@@ -708,7 +726,7 @@ struct map_data {
 	bool custom_name; ///< Whether the instanced map is using a custom name
 
 	/* */
-	int (*getcellp)(struct map_data* m,int16 x,int16 y,cell_chk cellchk);
+	int (*getcellp)(struct map_data* m, const struct block_list *bl, int16 x, int16 y, cell_chk cellchk);
 	void (*setcell) (int16 m, int16 x, int16 y, cell_t cell, bool flag);
 	char *cellPos;
 
@@ -754,8 +772,6 @@ struct mapit_interface {
 	struct block_list*      (*prev) (struct s_mapiterator* iter);
 	bool                    (*exists) (struct s_mapiterator* iter);
 };
-
-struct mapit_interface *mapit;
 
 #define mapit_getallusers() (mapit->alloc(MAPIT_NORMAL,BL_PC))
 #define mapit_geteachpc()   (mapit->alloc(MAPIT_NORMAL,BL_PC))
@@ -810,7 +826,13 @@ struct map_cache_map_info {
 struct map_interface {
 
 	/* vars */
-	bool minimal;
+	bool minimal;     ///< Starts the server in minimal initialization mode.
+	bool scriptcheck; ///< Starts the server in script-check mode.
+
+	/** Additional scripts requested through the command-line */
+	char **extra_scripts;
+	int extra_scripts_count;
+
 	int retval;
 	int count;
 
@@ -844,19 +866,17 @@ struct map_interface {
 
 	char item_db_db[32];
 	char item_db2_db[32];
-	char item_db_re_db[32];
 	char mob_db_db[32];
-	char mob_db_re_db[32];
 	char mob_db2_db[32];
 	char mob_skill_db_db[32];
-	char mob_skill_db_re_db[32];
 	char mob_skill_db2_db[32];
-	char interreg_db[32];
 	char autotrade_merchants_db[32];
 	char autotrade_data_db[32];
 	char npc_market_data_db[32];
 
 	char default_codepage[32];
+	char default_lang_str[64];
+	uint8 default_lang_id;
 
 	int server_port;
 	char server_ip[32];
@@ -883,15 +903,15 @@ struct map_interface {
 	DBMap* regen_db;  // int id -> struct block_list* (status_natural_heal processing)
 	DBMap* zone_db;   // string => struct map_zone_data
 	DBMap* iwall_db;
-	/* order respected by map_defaults() in order to zero */
-	/* from block_free until zone_pk */
 	struct block_list **block_free;
 	int block_free_count, block_free_lock, block_free_list_size;
 	struct block_list **bl_list;
 	int bl_list_count, bl_list_size;
+BEGIN_ZEROED_BLOCK; // This block is zeroed in map_defaults()
 	struct block_list bl_head;
 	struct map_zone_data zone_all;/* used as a base on all maps */
 	struct map_zone_data zone_pk;/* used for (pk_mode) */
+END_ZEROED_BLOCK;
 	/* */
 	struct map_session_data *cpsd;
 	struct map_data *list;
@@ -911,7 +931,7 @@ struct map_interface {
 	void (*zone_change) (int m, struct map_zone_data *zone, const char* start, const char* buffer, const char* filepath);
 	void (*zone_change2) (int m, struct map_zone_data *zone);
 
-	int (*getcell) (int16 m,int16 x,int16 y,cell_chk cellchk);
+	int (*getcell) (int16 m, const struct block_list *bl, int16 x, int16 y, cell_chk cellchk);
 	void (*setgatcell) (int16 m, int16 x, int16 y, int gat);
 
 	void (*cellfromcache) (struct map_data *m);
@@ -933,7 +953,7 @@ struct map_interface {
 	// search and creation
 	int (*get_new_object_id) (void);
 	int (*search_freecell) (struct block_list *src, int16 m, int16 *x, int16 *y, int16 rx, int16 ry, int flag);
-	bool (*closest_freecell) (int16 m, int16 *x, int16 *y, int type, int flag);
+	bool (*closest_freecell) (int16 m, const struct block_list *bl, int16 *x, int16 *y, int type, int flag);
 	//
 	int (*quit) (struct map_session_data *sd);
 	// npc
@@ -942,7 +962,7 @@ struct map_interface {
 	int (*clearflooritem_timer) (int tid, int64 tick, int id, intptr_t data);
 	int (*removemobs_timer) (int tid, int64 tick, int id, intptr_t data);
 	void (*clearflooritem) (struct block_list* bl);
-	int (*addflooritem) (struct item *item_data,int amount,int16 m,int16 x,int16 y,int first_charid,int second_charid,int third_charid,int flags);
+	int (*addflooritem) (const struct block_list *bl, struct item *item_data, int amount, int16 m, int16 x, int16 y, int first_charid, int second_charid, int third_charid, int flags);
 	// player to map session
 	void (*addnickdb) (int charid, const char* nick);
 	void (*delnickdb) (int charid, const char* nick);
@@ -1003,7 +1023,7 @@ struct map_interface {
 	struct mob_data * (*getmob_boss) (int16 m);
 	struct mob_data * (*id2boss) (int id);
 	// reload config file looking only for npcs
-	void (*reloadnpc) (bool clear, const char * const *extra_scripts, int extra_scripts_count);
+	void (*reloadnpc) (bool clear);
 
 	int (*check_dir) (int s_dir,int t_dir);
 	uint8 (*calc_dir) (struct block_list *src,int16 x,int16 y);
@@ -1029,15 +1049,15 @@ struct map_interface {
 	void (*do_shutdown) (void);
 
 	int (*freeblock_timer) (int tid, int64 tick, int id, intptr_t data);
-	int (*searchrandfreecell) (int16 m, int16 *x, int16 *y, int stack);
+	int (*searchrandfreecell) (int16 m, const struct block_list *bl, int16 *x, int16 *y, int stack);
 	int (*count_sub) (struct block_list *bl, va_list ap);
 	DBData (*create_charid2nick) (DBKey key, va_list args);
 	int (*removemobs_sub) (struct block_list *bl, va_list ap);
 	struct mapcell (*gat2cell) (int gat);
 	int (*cell2gat) (struct mapcell cell);
-	int (*getcellp) (struct map_data *m, int16 x, int16 y, cell_chk cellchk);
+	int (*getcellp) (struct map_data *m, const struct block_list *bl, int16 x, int16 y, cell_chk cellchk);
 	void (*setcell) (int16 m, int16 x, int16 y, cell_t cell, bool flag);
-	int (*sub_getcellp) (struct map_data *m, int16 x, int16 y, cell_chk cellchk);
+	int (*sub_getcellp) (struct map_data *m, const struct block_list *bl, int16 x, int16 y, cell_chk cellchk);
 	void (*sub_setcell) (int16 m, int16 x, int16 y, cell_t cell, bool flag);
 	void (*iwall_nextxy) (int16 x, int16 y, int8 dir, int pos, int16 *x1, int16 *y1);
 	DBData (*create_map_data_other_server) (DBKey key, va_list args);
@@ -1066,18 +1086,19 @@ struct map_interface {
 	int (*nick_db_final) (DBKey key, DBData *data, va_list args);
 	int (*cleanup_db_sub) (DBKey key, DBData *data, va_list va);
 	int (*abort_sub) (struct map_session_data *sd, va_list ap);
-	void (*helpscreen) (bool do_exit);
-	void (*versionscreen) (bool do_exit);
-	bool (*arg_next_value) (const char *option, int i, int argc, bool must);
 	void (*update_cell_bl) (struct block_list *bl, bool increase);
 	int (*get_new_bonus_id) (void);
 	void (*add_questinfo) (int m, struct questinfo *qi);
 	bool (*remove_questinfo) (int m, struct npc_data *nd);
 	struct map_zone_data *(*merge_zone) (struct map_zone_data *main, struct map_zone_data *other);
+	void (*zone_clear_single) (struct map_zone_data *zone);
 };
 
-struct map_interface *map;
-
+#ifdef HERCULES_CORE
 void map_defaults(void);
+#endif // HERCULES_CORE
+
+HPShared struct mapit_interface *mapit;
+HPShared struct map_interface *map;
 
 #endif /* MAP_MAP_H */

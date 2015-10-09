@@ -5,7 +5,7 @@
 #ifndef COMMON_NULLPO_H
 #define COMMON_NULLPO_H
 
-#include "../common/cbasetypes.h"
+#include "common/hercules.h"
 
 // enabled by default on debug builds
 #if defined(DEBUG) && !defined(NULLPO_CHECK)
@@ -27,7 +27,7 @@
 #include <crtdbg.h>
 #endif // !DEFCPP && WIN && !MINGW
 #define Assert(EX) assert(EX)
-#define Assert_chk(EX) ( (EX) ? false : (assert_report(__FILE__, __LINE__, __func__, #EX, "failed assertion"), true) )
+#define Assert_chk(EX) ( (EX) ? false : (nullpo->assert_report(__FILE__, __LINE__, __func__, #EX, "failed assertion"), true) )
 #else // ! ASSERT_CHECK
 #define Assert(EX) (EX)
 #define Assert_chk(EX) ((EX), false)
@@ -40,7 +40,7 @@
  * @param t pointer to check
  * @return true if the passed pointer is NULL, false otherwise
  */
-#define nullpo_chk(t) ( (t) != NULL ? false : (assert_report(__FILE__, __LINE__, __func__, #t, "nullpo info"), true) )
+#define nullpo_chk(t) ( (t) != NULL ? false : (nullpo->assert_report(__FILE__, __LINE__, __func__, #t, "nullpo info"), true) )
 #else // ! NULLPO_CHECK
 #define nullpo_chk(t) ((void)(t), false)
 #endif // NULLPO_CHECK
@@ -123,6 +123,14 @@
 	if (Assert_chk(t)) break; else (void)0
 
 
-void assert_report(const char *file, int line, const char *func, const char *targetname, const char *title);
+struct nullpo_interface {
+	void (*assert_report) (const char *file, int line, const char *func, const char *targetname, const char *title);
+};
+
+#ifdef HERCULES_CORE
+void nullpo_defaults(void);
+#endif // HERCULES_CORE
+
+HPShared struct nullpo_interface *nullpo;
 
 #endif /* COMMON_NULLPO_H */

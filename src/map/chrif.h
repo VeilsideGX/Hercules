@@ -5,12 +5,12 @@
 #ifndef MAP_CHRIF_H
 #define MAP_CHRIF_H
 
-#include <time.h>
+#include "map/map.h" //TBL_PC
+#include "common/hercules.h"
+#include "common/db.h"
 
-#include "map.h" //TBL_stuff
-#include "../common/cbasetypes.h"
-#include "../common/db.h"
-
+struct eri;
+struct map_session_data;
 struct status_change_entry;
 
 /**
@@ -39,6 +39,8 @@ struct auth_node {
 	int64 node_created;              //timestamp for node timeouts
 	enum sd_state state;             //To track whether player was login in/out or changing maps.
 };
+
+#define chrif_char_offline(x) chrif->char_offline_nsd((x)->status.account_id,(x)->status.char_id)
 
 /*=====================================
 * Interface : chrif.h
@@ -101,7 +103,7 @@ struct chrif_interface {
 	bool (*char_reset_offline) (void);
 	bool (*send_users_tochar) (void);
 	bool (*char_online) (struct map_session_data *sd);
-	bool (*changesex) (struct map_session_data *sd);
+	bool (*changesex) (struct map_session_data *sd, bool change_account);
 	//int (*chardisconnect) (struct map_session_data *sd); // FIXME: Commented out in clif.c, function does not exist
 	bool (*divorce) (int partner_id1, int partner_id2);
 
@@ -148,10 +150,10 @@ struct chrif_interface {
 	void (*del_scdata_single) (int account_id, int char_id, short type);
 };
 
-struct chrif_interface *chrif;
-
+#ifdef HERCULES_CORE
 void chrif_defaults(void);
-// There's no need for another function when a simple macro can do exactly the same effect
-#define chrif_char_offline(x) chrif->char_offline_nsd((x)->status.account_id,(x)->status.char_id)
+#endif // HERCULES_CORE
+
+HPShared struct chrif_interface *chrif;
 
 #endif /* MAP_CHRIF_H */

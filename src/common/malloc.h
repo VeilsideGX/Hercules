@@ -4,7 +4,7 @@
 #ifndef COMMON_MALLOC_H
 #define COMMON_MALLOC_H
 
-#include "../common/cbasetypes.h"
+#include "common/hercules.h"
 
 #define ALC_MARK __FILE__, __LINE__, __func__
 
@@ -59,14 +59,6 @@
 
 ////////////////////////////////////////////////
 
-//void malloc_memory_check(void);
-//bool malloc_verify_ptr(void* ptr);
-//size_t malloc_usage (void);
-//void malloc_init (void);
-//void malloc_final (void);
-
-void malloc_defaults(void);
-
 struct malloc_interface {
 	void (*init) (void);
 	void (*final) (void);
@@ -83,9 +75,15 @@ struct malloc_interface {
 	size_t (*usage) (void);
 	/* */
 	void (*post_shutdown) (void);
+	void (*init_messages) (void);
 };
 
-void memmgr_report (int extra);
+#ifdef HERCULES_CORE
+void malloc_defaults(void);
 
-struct malloc_interface *iMalloc;
+void memmgr_report(int extra);
+#endif // HERCULES_CORE
+
+HPShared struct malloc_interface *iMalloc;
+
 #endif /* COMMON_MALLOC_H */

@@ -6,23 +6,23 @@
 
 #include "int_quest.h"
 
+#include "char/char.h"
+#include "char/inter.h"
+#include "char/mapif.h"
+#include "common/cbasetypes.h"
+#include "common/malloc.h"
+#include "common/mmo.h"
+#include "common/nullpo.h"
+#include "common/showmsg.h"
+#include "common/socket.h"
+#include "common/sql.h"
+#include "common/strlib.h"
+
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
-
-#include "char.h"
-#include "inter.h"
-#include "mapif.h"
-#include "../common/db.h"
-#include "../common/malloc.h"
-#include "../common/mmo.h"
-#include "../common/showmsg.h"
-#include "../common/socket.h"
-#include "../common/sql.h"
-#include "../common/strlib.h"
-#include "../common/timer.h"
 
 struct inter_quest_interface inter_quest_s;
+struct inter_quest_interface *inter_quest;
 
 /**
  * Loads the entire questlog for a character.
@@ -60,14 +60,15 @@ struct quest *mapif_quests_fromsql(int char_id, int *count)
 
 	memset(&tmp_quest, 0, sizeof(struct quest));
 
-	if (SQL_ERROR == SQL->StmtPrepare(stmt, StrBuf->Value(&buf))
+	if (SQL_ERROR == SQL->StmtPrepareStr(stmt, StrBuf->Value(&buf))
 	 || SQL_ERROR == SQL->StmtBindParam(stmt, 0, SQLDT_INT, &char_id, 0)
 	 || SQL_ERROR == SQL->StmtExecute(stmt)
 	 || SQL_ERROR == SQL->StmtBindColumn(stmt, 0, SQLDT_INT,  &tmp_quest.quest_id, 0, NULL, NULL)
 	 || SQL_ERROR == SQL->StmtBindColumn(stmt, 1, SQLDT_INT,  &tmp_quest.state,    0, NULL, NULL)
 	 || SQL_ERROR == SQL->StmtBindColumn(stmt, 2, SQLDT_UINT, &tmp_quest.time,     0, NULL, NULL)
-	)
+	) {
 		sqlerror = SQL_ERROR;
+	}
 
 	StrBuf->Destroy(&buf);
 
@@ -142,7 +143,7 @@ bool mapif_quest_add(int char_id, struct quest qd)
 		StrBuf->Printf(&buf, ", '%d'", qd.count[i]);
 	}
 	StrBuf->AppendStr(&buf, ")");
-	if (SQL_ERROR == SQL->Query(inter->sql_handle, StrBuf->Value(&buf))) {
+	if (SQL_ERROR == SQL->QueryStr(inter->sql_handle, StrBuf->Value(&buf))) {
 		Sql_ShowDebug(inter->sql_handle);
 		StrBuf->Destroy(&buf);
 		return false;
@@ -171,7 +172,7 @@ bool mapif_quest_update(int char_id, struct quest qd)
 	}
 	StrBuf->Printf(&buf, " WHERE `quest_id` = '%d' AND `char_id` = '%d'", qd.quest_id, char_id);
 
-	if (SQL_ERROR == SQL->Query(inter->sql_handle, StrBuf->Value(&buf))) {
+	if (SQL_ERROR == SQL->QueryStr(inter->sql_handle, StrBuf->Value(&buf))) {
 		Sql_ShowDebug(inter->sql_handle);
 		StrBuf->Destroy(&buf);
 		return false;
@@ -249,8 +250,10 @@ void mapif_send_quests(int fd, int char_id, struct quest *tmp_questlog, int num_
 	WFIFOW(fd,2) = num_quests*sizeof(struct quest)+8;
 	WFIFOL(fd,4) = char_id;
 
-	if (num_quests > 0)
+	if (num_quests > 0) {
+		nullpo_retv(tmp_questlog);
 		memcpy(WFIFOP(fd,8), tmp_questlog, sizeof(struct quest)*num_quests);
+	}
 
 	WFIFOSET(fd,num_quests*sizeof(struct quest)+8);
 }
